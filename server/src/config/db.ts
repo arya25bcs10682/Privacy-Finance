@@ -8,6 +8,11 @@ export async function connectDB(uri?: string): Promise<typeof mongoose | null> {
     return null;
   }
 
+  // Reuse existing connection in serverless environments
+  if (mongoose.connection.readyState >= 1) {
+    return mongoose;
+  }
+
   try {
     const conn = await mongoose.connect(mongoUri, {
       serverSelectionTimeoutMS: 5000,

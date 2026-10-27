@@ -102,9 +102,11 @@ export async function parseStatementText(
     return firstAttempt.data;
   }
 
+  const firstError = (firstAttempt as { success: false; error: string }).error;
+
   // Attempt 2 (Retry once on invalid JSON or schema error)
   const retryPrompt = `Your previous response failed validation:
-${firstAttempt.error}
+${firstError}
 
 Raw page text:
 ${pageText}
@@ -122,8 +124,9 @@ Please correct your output and return strictly a valid JSON array of transaction
     return secondAttempt.data;
   }
 
+  const secondError = (secondAttempt as { success: false; error: string }).error;
   throw new Error(
-    `Failed to parse statement transactions after retry. Validation error: ${secondAttempt.error}`
+    `Failed to parse statement transactions after retry. Validation error: ${secondError}`
   );
 }
 
