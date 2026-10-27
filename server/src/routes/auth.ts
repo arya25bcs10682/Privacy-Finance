@@ -72,6 +72,8 @@ authRouter.post("/signup", async (req: Request, res: Response): Promise<void> =>
     let savedWrappedDataKey = wrappedDataKey;
     let savedWrappedDataKeyByRecovery = wrappedDataKeyByRecovery;
 
+    let userAccessToken = "";
+
     if (!isDbConnected()) {
       const memoryUser = memoryStore.users.create({
         email: normalizedEmail,
@@ -82,6 +84,7 @@ authRouter.post("/signup", async (req: Request, res: Response): Promise<void> =>
         refreshTokens: [],
       });
       const { accessToken, refreshToken } = generateTokens(memoryUser._id);
+      userAccessToken = accessToken;
       memoryUser.refreshTokens.push(refreshToken);
       userId = memoryUser._id;
       setAuthCookies(res, accessToken, refreshToken);
@@ -96,6 +99,7 @@ authRouter.post("/signup", async (req: Request, res: Response): Promise<void> =>
       });
 
       const { accessToken, refreshToken } = generateTokens(user._id.toString());
+      userAccessToken = accessToken;
       user.refreshTokens.push(refreshToken);
       await user.save();
       userId = user._id.toString();
@@ -106,6 +110,7 @@ authRouter.post("/signup", async (req: Request, res: Response): Promise<void> =>
     }
 
     res.status(201).json({
+      token: userAccessToken,
       user: {
         id: userId,
         email: normalizedEmail,
@@ -163,6 +168,7 @@ authRouter.post("/login", async (req: Request, res: Response): Promise<void> => 
     setAuthCookies(res, accessToken, refreshToken);
 
     res.status(200).json({
+      token: accessToken,
       user: {
         id: user._id.toString(),
         email: user.email,
@@ -423,5 +429,3 @@ authRouter.put(
     }
   }
 );
-
-
