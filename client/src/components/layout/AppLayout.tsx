@@ -14,6 +14,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSignupOpen, setIsSignupOpen] = useState(false);
 
+  React.useEffect(() => {
+    const handleUnauthorized = () => {
+      setIsLoginOpen(true);
+      setIsSignupOpen(false);
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+  }, []);
+
   return (
     <div className="min-h-screen bg-black text-foreground flex flex-col antialiased">
       {/* Left Sidebar (Desktop Fixed + Mobile Drawer) */}
