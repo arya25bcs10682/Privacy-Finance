@@ -18,7 +18,7 @@ import {
   arrayBufferToBase64,
   type WrappedKeyResult,
 } from "@/lib/crypto";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, setAuthToken, clearAuthToken, getAuthToken } from "@/lib/api";
 import { purgeAllEncryptedStorage } from "@/lib/storage/purge";
 
 export interface UserSession {
@@ -27,6 +27,7 @@ export interface UserSession {
 }
 
 export interface AuthResponse {
+  token?: string;
   user: UserSession;
   keySalt: string;
   wrappedDataKey: WrappedKeyResult;
@@ -108,7 +109,7 @@ export function KeyProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Logout user, clear session cookies, and wipe keys from memory.
+   * Logout user, clear session token, and wipe keys from memory.
    */
   const logout = useCallback(async () => {
     try {
@@ -116,6 +117,7 @@ export function KeyProvider({ children }: { children: ReactNode }) {
     } catch {
       // Logout even if network fails
     } finally {
+      clearAuthToken();
       setDataKey(null);
       setUser(null);
       setKeySalt(null);
@@ -128,11 +130,38 @@ export function KeyProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Check initial session on app mount
+   * Handle global 401 unauthorized event by clearing session state
+   */
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setDataKey(null);
+      setUser(null);
+      setKeySalt(null);
+      setWrappedDataKey(null);
+      setWrappedDataKeyByRecovery(null);
+      setIsLocked(false);
+      pendingSignupRef.current = null;
+      purgeAllEncryptedStorage();
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+  }, []);
+
+  /**
+   * Check initial session on app mount using stored token
    */
   useEffect(() => {
     let isMounted = true;
     async function checkSession() {
+      const token = getAuthToken();
+      if (!token) {
+        if (!isMounted) return;
+        setUser(null);
+        setIsLocked(false);
+        setIsLoading(false);
+        return;
+      }
+
       try {
         const data = await apiFetch<AuthResponse>("/auth/me");
         if (!isMounted) return;
@@ -141,12 +170,13 @@ export function KeyProvider({ children }: { children: ReactNode }) {
         setWrappedDataKey(data.wrappedDataKey);
         setWrappedDataKeyByRecovery(data.wrappedDataKeyByRecovery);
 
-        // Session exists in cookie, but master dataKey is not yet in memory.
+        // Session exists via token, but master dataKey is not yet in memory.
         // Prompt user for Secret Key to unlock.
         setIsLocked(true);
       } catch {
-        // No active session cookie
+        // Token invalid or expired
         if (!isMounted) return;
+        clearAuthToken();
         setUser(null);
         setIsLocked(false);
       } finally {
@@ -216,6 +246,10 @@ export function KeyProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
+
+        if (data.token) {
+          setAuthToken(data.token);
+        }
 
         setUser(data.user);
         setKeySalt(data.keySalt);
@@ -312,6 +346,10 @@ export function KeyProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: JSON.stringify(payload),
         });
+
+        if (data.token) {
+          setAuthToken(data.token);
+        }
 
         setUser(data.user);
         setKeySalt(data.keySalt);
