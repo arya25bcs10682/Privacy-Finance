@@ -5,7 +5,7 @@ import { ChartCard } from "@/components/ui/chart-card";
 import { Button } from "@/components/ui/button";
 import { useKeyContext } from "@/context/KeyContext";
 import { useTransactionContext } from "@/context/TransactionContext";
-import { searchMutualFunds } from "@/lib/holdings/marketData";
+import { searchMutualFunds, formatCurrency, getCurrencySymbol } from "@/lib/holdings/marketData";
 import type { AssetType, HoldingItem } from "@/lib/holdings/types";
 import {
   TrendingUp,
@@ -22,6 +22,7 @@ import {
   BarChart3,
   X,
   AlertCircle,
+  Globe,
 } from "lucide-react";
 import { ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Tooltip } from "recharts";
 
@@ -32,6 +33,8 @@ export function InvestmentsPage() {
     enrichedHoldings,
     portfolioSummary,
     portfolioAllocation,
+    portfolioCurrency,
+    setPortfolioCurrency,
     isQuotesLoading,
     isLoading,
     refreshQuotes,
@@ -184,8 +187,33 @@ export function InvestmentsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 font-mono text-xs text-trend-green bg-trend-green/10 border border-trend-green/30 px-2.5 py-1 rounded">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Currency Filter Selector */}
+          <div className="flex items-center bg-[#121418] border border-[#1F242D] rounded-lg p-0.5" title="Filter portfolio currency">
+            <div className="px-2 text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
+              <Globe className="h-3 w-3 text-accent" />
+              <span className="hidden sm:inline">Currency:</span>
+            </div>
+            {(["INR", "USD", "EUR", "GBP"] as const).map((curr) => {
+              const isActive = portfolioCurrency === curr;
+              return (
+                <button
+                  key={curr}
+                  type="button"
+                  onClick={() => setPortfolioCurrency(curr)}
+                  className={`px-2 py-1 text-xs font-mono font-medium rounded transition ${
+                    isActive
+                      ? "bg-foreground text-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-[#161B22]"
+                  }`}
+                >
+                  {curr === "INR" ? "₹ INR" : curr === "USD" ? "$ USD" : curr === "EUR" ? "€ EUR" : "£ GBP"}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-trend-green bg-trend-green/10 border border-trend-green/30 px-2.5 py-1 rounded">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>PORTFOLIO ENCRYPTED (AES-GCM)</span>
           </div>
@@ -217,16 +245,16 @@ export function InvestmentsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Invested"
-          value={`₹${portfolioSummary.totalInvested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-          subtitle="Total acquisition cost"
+          value={formatCurrency(portfolioSummary.totalInvested, portfolioCurrency, { maximumFractionDigits: 0 })}
+          subtitle={`Total acquisition cost (${portfolioCurrency})`}
           icon={Building}
         />
         <StatCard
           title="Current Value"
-          value={`₹${portfolioSummary.totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-          subtitle="Real-time market valuation"
+          value={formatCurrency(portfolioSummary.totalValue, portfolioCurrency, { maximumFractionDigits: 0 })}
+          subtitle={`Real-time market valuation (${portfolioCurrency})`}
           delta={{
-            value: `${portfolioSummary.dayChangeAmount >= 0 ? "+" : ""}₹${Math.abs(portfolioSummary.dayChangeAmount).toLocaleString("en-IN", { maximumFractionDigits: 0 })} (${portfolioSummary.dayChangePercent >= 0 ? "+" : ""}${portfolioSummary.dayChangePercent.toFixed(2)}%)`,
+            value: `${portfolioSummary.dayChangeAmount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(portfolioSummary.dayChangeAmount), portfolioCurrency, { maximumFractionDigits: 0 })} (${portfolioSummary.dayChangePercent >= 0 ? "+" : ""}${portfolioSummary.dayChangePercent.toFixed(2)}%)`,
             isPositive: portfolioSummary.dayChangeAmount >= 0,
             period: "today",
           }}
@@ -234,8 +262,8 @@ export function InvestmentsPage() {
         />
         <StatCard
           title="Total Profit / Loss"
-          value={`${portfolioSummary.totalPnlAmount >= 0 ? "+" : ""}₹${Math.abs(portfolioSummary.totalPnlAmount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-          subtitle="Unrealized returns"
+          value={`${portfolioSummary.totalPnlAmount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(portfolioSummary.totalPnlAmount), portfolioCurrency, { maximumFractionDigits: 0 })}`}
+          subtitle={`Unrealized returns (${portfolioCurrency})`}
           delta={{
             value: `${portfolioSummary.totalPnlPercent >= 0 ? "+" : ""}${portfolioSummary.totalPnlPercent.toFixed(2)}%`,
             isPositive: portfolioSummary.totalPnlAmount >= 0,
@@ -247,7 +275,7 @@ export function InvestmentsPage() {
           title="Tracked Holdings"
           value={String(portfolioSummary.holdingsCount)}
           subtitle={`${portfolioSummary.stocksCount} Stocks • ${portfolioSummary.mfCount} Mutual Funds`}
-          badge="Live Feed"
+          badge={`Currency: ${portfolioCurrency}`}
           icon={BarChart3}
         />
       </div>
@@ -301,7 +329,7 @@ export function InvestmentsPage() {
                       itemStyle={{ color: "#FFFFFF" }}
                       labelStyle={{ color: "#FFFFFF" }}
                       formatter={(val: unknown) => [
-                        `₹${Number(val || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`,
+                        formatCurrency(Number(val || 0), portfolioCurrency, { maximumFractionDigits: 0 }),
                         "Current Value",
                       ]}
                     />
@@ -321,7 +349,7 @@ export function InvestmentsPage() {
                       <span className="text-[#E0E3E6]">{item.name}</span>
                     </div>
                     <div className="font-mono text-[#E0E3E6]">
-                      ₹{item.value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} (
+                      {formatCurrency(item.value, portfolioCurrency, { maximumFractionDigits: 0 })} (
                       {item.percent.toFixed(1)}%)
                     </div>
                   </div>
@@ -338,7 +366,7 @@ export function InvestmentsPage() {
               <div>
                 <CardTitle className="text-sm font-medium">Holdings Portfolio</CardTitle>
                 <CardDescription className="text-xs text-muted-foreground">
-                  Individual equities and mutual fund schemes decrypted in client RAM
+                  Individual equities and mutual fund schemes converted to {portfolioCurrency} ({getCurrencySymbol(portfolioCurrency)}) in client RAM
                 </CardDescription>
               </div>
             </div>
@@ -377,17 +405,18 @@ export function InvestmentsPage() {
                       <th className="p-3 font-medium">Asset / Ticker</th>
                       <th className="p-3 font-medium">Type</th>
                       <th className="p-3 font-medium text-right">Units</th>
-                      <th className="p-3 font-medium text-right">Avg Buy Price</th>
-                      <th className="p-3 font-medium text-right">Invested Amount</th>
-                      <th className="p-3 font-medium text-right">Current Price</th>
-                      <th className="p-3 font-medium text-right">Current Value</th>
-                      <th className="p-3 font-medium text-right whitespace-nowrap">Total P&L</th>
+                      <th className="p-3 font-medium text-right">Avg Buy Price ({getCurrencySymbol(portfolioCurrency)})</th>
+                      <th className="p-3 font-medium text-right">Invested ({getCurrencySymbol(portfolioCurrency)})</th>
+                      <th className="p-3 font-medium text-right">Current Price ({getCurrencySymbol(portfolioCurrency)})</th>
+                      <th className="p-3 font-medium text-right">Current Value ({getCurrencySymbol(portfolioCurrency)})</th>
+                      <th className="p-3 font-medium text-right whitespace-nowrap">Total P&L ({getCurrencySymbol(portfolioCurrency)})</th>
                       <th className="p-3 font-medium text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gridline font-mono">
                     {enrichedHoldings.map((h) => {
                       const isPnlPositive = h.totalPnlAmount >= 0;
+                      const hasDiffCurrency = Boolean(h.originalCurrency && h.originalCurrency !== portfolioCurrency);
 
                       return (
                         <tr key={h.id} className="hover:bg-[#161B22]/50 transition">
@@ -398,6 +427,11 @@ export function InvestmentsPage() {
                               {h.purchaseDate && (
                                 <span className="text-[10px] text-muted-foreground/80">
                                   • Bought {h.purchaseDate}
+                                </span>
+                              )}
+                              {h.originalCurrency && (
+                                <span className="text-[9px] text-accent/80 bg-accent/10 px-1 rounded font-mono">
+                                  Traded: {h.originalCurrency}
                                 </span>
                               )}
                               {!h.hasLiveQuote && (
@@ -422,16 +456,37 @@ export function InvestmentsPage() {
                             {h.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })}
                           </td>
                           <td className="p-3 text-right text-muted-foreground">
-                            ₹{h.avgPrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div>
+                              {formatCurrency(h.avgPrice, portfolioCurrency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            {hasDiffCurrency && (
+                              <div className="text-[10px] text-muted-foreground/70 font-sans" title="Original bought price">
+                                Orig: {formatCurrency(h.originalAvgPrice ?? h.avgPrice, h.originalCurrency!, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 text-right text-foreground font-medium">
-                            ₹{h.investedValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div>
+                              {formatCurrency(h.investedValue, portfolioCurrency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            {hasDiffCurrency && (
+                              <div className="text-[10px] text-muted-foreground/70 font-sans" title="Original invested cost">
+                                Orig: {formatCurrency(h.originalInvestedValue ?? h.investedValue, h.originalCurrency!, { maximumFractionDigits: 2 })}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 text-right font-medium">
                             {h.hasLiveQuote ? (
-                              <span className="text-foreground">
-                                ₹{h.currentPrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
+                              <div>
+                                <span className="text-foreground">
+                                  {formatCurrency(h.currentPrice, portfolioCurrency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                                {hasDiffCurrency && h.originalCurrentPrice && (
+                                  <div className="text-[10px] text-muted-foreground/70 font-sans" title="Traded quote price">
+                                    Orig: {formatCurrency(h.originalCurrentPrice, h.originalCurrency!, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-amber-400/90 text-[11px] italic">price unavailable</span>
                             )}
@@ -439,11 +494,11 @@ export function InvestmentsPage() {
                           <td className="p-3 text-right font-medium">
                             {h.hasLiveQuote ? (
                               <span className="text-foreground">
-                                ₹{h.currentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                                {formatCurrency(h.currentValue, portfolioCurrency, { maximumFractionDigits: 0 })}
                               </span>
                             ) : (
                               <span className="text-muted-foreground text-[11px]">
-                                ₹{h.investedValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}{" "}
+                                {formatCurrency(h.investedValue, portfolioCurrency, { maximumFractionDigits: 0 })}{" "}
                                 <span className="text-[9px] text-muted-foreground/70">(cost basis)</span>
                               </span>
                             )}
@@ -461,7 +516,7 @@ export function InvestmentsPage() {
                             {h.hasLiveQuote ? (
                               <>
                                 <div className="whitespace-nowrap" style={{ whiteSpace: "nowrap" }}>
-                                  {`${isPnlPositive ? "+" : "-"}₹${Math.abs(h.totalPnlAmount).toLocaleString("en-IN", {
+                                  {`${isPnlPositive ? "+" : "-"}${formatCurrency(Math.abs(h.totalPnlAmount), portfolioCurrency, {
                                     maximumFractionDigits: 0,
                                   })}`}
                                 </div>
@@ -692,7 +747,9 @@ export function InvestmentsPage() {
                 </div>
                 <div>
                   <label className="block text-muted-foreground mb-1">
-                    {assetType === "mf" ? "Average NAV (₹)" : "Average Buy Price (₹)"}
+                    {assetType === "mf"
+                      ? `Average NAV (${getCurrencySymbol(currency)})`
+                      : `Average Buy Price (${getCurrencySymbol(currency)})`}
                   </label>
                   <input
                     type="number"
@@ -718,7 +775,7 @@ export function InvestmentsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-muted-foreground mb-1">Currency</label>
+                  <label className="block text-muted-foreground mb-1">Asset Currency</label>
                   <select
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
@@ -727,6 +784,7 @@ export function InvestmentsPage() {
                     <option value="INR">INR (₹)</option>
                     <option value="USD">USD ($)</option>
                     <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
                   </select>
                 </div>
               </div>

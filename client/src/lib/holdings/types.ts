@@ -37,6 +37,11 @@ export interface EnrichedHolding extends HoldingItem {
   currency: string;
   hasLiveQuote: boolean;
   quoteUnavailable?: boolean;
+  originalCurrency?: string;
+  originalAvgPrice?: number;
+  originalInvestedValue?: number;
+  originalCurrentPrice?: number;
+  originalCurrentValue?: number;
 }
 
 export interface PortfolioSummary {
@@ -49,6 +54,7 @@ export interface PortfolioSummary {
   holdingsCount: number;
   stocksCount: number;
   mfCount: number;
+  currency?: string;
 }
 
 export interface AssetAllocationItem {

@@ -147,10 +147,117 @@ export async function searchMutualFunds(
 /**
  * Batch fetches all market data for holdings (both stocks via proxy and MFs via direct API)
  */
+/**
+ * Supported display currencies and exchange rate conversion logic
+ */
+export const DEFAULT_RATES_TO_INR: Record<string, number> = {
+  INR: 1,
+  USD: 86.5,
+  EUR: 93.0,
+  GBP: 110.0,
+};
+
+/**
+ * Extracts live or fallback exchange rates from quote data
+ */
+export function getExchangeRates(quotes?: Record<string, QuoteData>): Record<string, number> {
+  const rates: Record<string, number> = { ...DEFAULT_RATES_TO_INR };
+  if (!quotes) return rates;
+
+  if (quotes["USDINR=X"]?.price && quotes["USDINR=X"].price > 0) {
+    rates.USD = quotes["USDINR=X"].price;
+  }
+  if (quotes["EURINR=X"]?.price && quotes["EURINR=X"].price > 0) {
+    rates.EUR = quotes["EURINR=X"].price;
+  } else if (quotes["EURUSD=X"]?.price && quotes["EURUSD=X"].price > 0 && rates.USD) {
+    rates.EUR = quotes["EURUSD=X"].price * rates.USD;
+  }
+  if (quotes["GBPINR=X"]?.price && quotes["GBPINR=X"].price > 0) {
+    rates.GBP = quotes["GBPINR=X"].price;
+  }
+  return rates;
+}
+
+/**
+ * Converts a numeric value between any two supported currencies
+ */
+export function convertCurrency(
+  amount: number,
+  from: string = "INR",
+  to: string = "INR",
+  rates: Record<string, number> = DEFAULT_RATES_TO_INR
+): number {
+  if (amount === 0 || isNaN(amount)) return 0;
+  const fromUpper = (from || "INR").toUpperCase();
+  const toUpper = (to || "INR").toUpperCase();
+  if (fromUpper === toUpper) return amount;
+
+  const fromRate = rates[fromUpper] ?? 1;
+  const toRate = rates[toUpper] ?? 1;
+
+  // Convert from origin currency to base INR, then from INR to target currency
+  const inINR = amount * fromRate;
+  return inINR / toRate;
+}
+
+/**
+ * Returns the currency symbol for display
+ */
+export function getCurrencySymbol(currency: string = "INR"): string {
+  switch (currency.toUpperCase()) {
+    case "USD":
+      return "$";
+    case "EUR":
+      return "€";
+    case "GBP":
+      return "£";
+    case "INR":
+    default:
+      return "₹";
+  }
+}
+
+/**
+ * Formats a currency amount with symbol and appropriate locale
+ */
+export function formatCurrency(
+  amount: number,
+  currency: string = "INR",
+  options?: {
+    showSign?: boolean;
+    minimumFractionDigits?: number;
+    maximumFractionDigits?: number;
+  }
+): string {
+  const symbol = getCurrencySymbol(currency);
+  const isNegative = amount < 0;
+  const absAmount = Math.abs(amount);
+  const minDigits = options?.minimumFractionDigits ?? 0;
+  const maxDigits = options?.maximumFractionDigits ?? 2;
+
+  let locale = "en-IN";
+  if (currency.toUpperCase() === "USD") locale = "en-US";
+  else if (currency.toUpperCase() === "EUR") locale = "de-DE";
+  else if (currency.toUpperCase() === "GBP") locale = "en-GB";
+
+  const formatted = absAmount.toLocaleString(locale, {
+    minimumFractionDigits: minDigits,
+    maximumFractionDigits: maxDigits,
+  });
+
+  const sign = options?.showSign ? (isNegative ? "-" : "+") : isNegative ? "-" : "";
+  return `${sign}${symbol}${formatted}`;
+}
+
+/**
+ * Batch fetches all market data for holdings (both stocks via proxy and MFs via direct API)
+ * Automatically includes major forex currency pairs for real-time exchange rates.
+ */
 export async function fetchAllHoldingsQuotes(
   holdings: HoldingItem[]
 ): Promise<Record<string, QuoteData>> {
-  const stockSymbols: string[] = [];
+  // Always include major forex pairs for live portfolio currency conversion
+  const stockSymbols: string[] = ["USDINR=X", "EURINR=X", "GBPINR=X", "EURUSD=X"];
   const mfCodes: string[] = [];
 
   for (const h of holdings) {
@@ -161,7 +268,7 @@ export async function fetchAllHoldingsQuotes(
     }
   }
 
-  // 1. Fetch stock quotes via proxy in one batch
+  // 1. Fetch stock quotes and forex pairs via proxy in one batch
   const stockQuotes = await fetchStockQuotes(stockSymbols);
 
   // 2. Fetch mutual fund NAVs directly in parallel
@@ -181,19 +288,24 @@ export async function fetchAllHoldingsQuotes(
 
 /**
  * Computes live portfolio metrics:
- * - Current Value = units * CMP
- * - Total P&L = Current Value - Invested Value
- * - Day Change = units * (CMP - prevClose)
+ * - Current Value = units * CMP (converted to target currency)
+ * - Total P&L = Current Value - Invested Value (converted to target currency)
+ * - Day Change = units * (CMP - prevClose) (converted to target currency)
  * - Allocation Breakdown
  */
 export function computePortfolio(
   holdings: HoldingItem[],
-  quotes: Record<string, QuoteData>
+  quotes: Record<string, QuoteData>,
+  targetCurrency: string = "INR"
 ): {
   enriched: EnrichedHolding[];
   summary: PortfolioSummary;
   allocation: AssetAllocationItem[];
+  targetCurrency: string;
 } {
+  const rates = getExchangeRates(quotes);
+  const target = (targetCurrency || "INR").toUpperCase();
+
   let totalValue = 0;
   let totalInvested = 0;
   let dayChangeAmount = 0;
@@ -205,35 +317,64 @@ export function computePortfolio(
     const quote = quotes[lookupKey] || quotes[h.symbol.trim()];
 
     const hasLiveQuote = Boolean(quote && quote.price > 0);
-    const currentPrice = hasLiveQuote ? quote!.price : h.avgPrice;
-    const investedValue = h.units * h.avgPrice;
-    const currentValue = h.units * currentPrice;
-    const totalPnlAmount = currentValue - investedValue;
-    const totalPnlPercent = investedValue > 0 ? (totalPnlAmount / investedValue) * 100 : 0;
+    const nativeCurrency = (h.currency || quote?.currency || "INR").toUpperCase();
+    const quoteCurrency = (quote?.currency || nativeCurrency).toUpperCase();
+
+    // Native price and cost basis in asset's original currency
+    const rawCMP = hasLiveQuote ? quote!.price : h.avgPrice;
+    const currentPriceNative =
+      quote && quoteCurrency !== nativeCurrency
+        ? convertCurrency(rawCMP, quoteCurrency, nativeCurrency, rates)
+        : rawCMP;
+
+    const investedValueNative = h.units * h.avgPrice;
+    const currentValueNative = h.units * currentPriceNative;
+    const totalPnlAmountNative = currentValueNative - investedValueNative;
+    const totalPnlPercent =
+      investedValueNative > 0 ? (totalPnlAmountNative / investedValueNative) * 100 : 0;
 
     const unitDayChange = hasLiveQuote ? quote!.dayChange : 0;
-    const itemDayChangeAmount = h.units * unitDayChange;
+    const itemDayChangeAmountNative = h.units * unitDayChange;
     const itemDayChangePercent = hasLiveQuote ? quote!.dayChangePercent : 0;
 
-    totalValue += currentValue;
-    totalInvested += investedValue;
-    dayChangeAmount += itemDayChangeAmount;
+    // Convert all metrics to target currency
+    const avgPriceConverted = convertCurrency(h.avgPrice, nativeCurrency, target, rates);
+    const currentPriceConverted = convertCurrency(currentPriceNative, nativeCurrency, target, rates);
+    const investedValueConverted = convertCurrency(investedValueNative, nativeCurrency, target, rates);
+    const currentValueConverted = convertCurrency(currentValueNative, nativeCurrency, target, rates);
+    const totalPnlAmountConverted = currentValueConverted - investedValueConverted;
+    const itemDayChangeAmountConverted = convertCurrency(
+      itemDayChangeAmountNative,
+      nativeCurrency,
+      target,
+      rates
+    );
+
+    totalValue += currentValueConverted;
+    totalInvested += investedValueConverted;
+    dayChangeAmount += itemDayChangeAmountConverted;
 
     if (h.assetType === "mf") mfCount++;
     else stocksCount++;
 
     return {
       ...h,
-      currentPrice,
-      currentValue,
-      investedValue,
-      totalPnlAmount,
+      avgPrice: avgPriceConverted,
+      currentPrice: currentPriceConverted,
+      currentValue: currentValueConverted,
+      investedValue: investedValueConverted,
+      totalPnlAmount: totalPnlAmountConverted,
       totalPnlPercent,
-      dayChangeAmount: itemDayChangeAmount,
+      dayChangeAmount: itemDayChangeAmountConverted,
       dayChangePercent: itemDayChangePercent,
-      currency: quote?.currency || h.currency || "INR",
+      currency: target,
       hasLiveQuote,
       quoteUnavailable: !hasLiveQuote,
+      originalCurrency: nativeCurrency,
+      originalAvgPrice: h.avgPrice,
+      originalInvestedValue: investedValueNative,
+      originalCurrentPrice: currentPriceNative,
+      originalCurrentValue: currentValueNative,
     };
   });
 
@@ -243,7 +384,7 @@ export function computePortfolio(
   const dayChangePercent =
     prevPortfolioValue > 0 ? (dayChangeAmount / prevPortfolioValue) * 100 : 0;
 
-  // Build allocation breakdown by asset class / type
+  // Build allocation breakdown by asset class / type in target currency
   const classTotals: Record<string, number> = {};
   for (const item of enriched) {
     const typeLabel =
@@ -283,7 +424,9 @@ export function computePortfolio(
       holdingsCount: holdings.length,
       stocksCount,
       mfCount,
+      currency: target,
     },
     allocation,
+    targetCurrency: target,
   };
 }

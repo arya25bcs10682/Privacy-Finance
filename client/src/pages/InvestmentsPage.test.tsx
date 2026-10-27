@@ -51,6 +51,8 @@ function renderInvestmentsPage(contextOverrides: Record<string, unknown> = {}, i
       mfCount: 0,
     },
     portfolioAllocation: [],
+    portfolioCurrency: "INR",
+    setPortfolioCurrency: vi.fn(),
     isQuotesLoading: false,
     saveHolding: vi.fn().mockResolvedValue({ id: "h1" }),
     deleteHolding: vi.fn().mockResolvedValue(undefined),
@@ -292,5 +294,52 @@ describe("InvestmentsPage Component", () => {
         })
       );
     });
+  });
+
+  it("renders currency filter buttons and switches portfolio view currency", () => {
+    const setPortfolioCurrencyMock = vi.fn();
+    const mockHoldingWithDiffCurrency: EnrichedHolding = {
+      id: "us-stock",
+      symbol: "NVDA",
+      name: "NVIDIA Corp",
+      units: 2,
+      avgPrice: 10400, // Converted to INR (120 * ~86.66)
+      investedValue: 20800,
+      currentPrice: 12133,
+      currentValue: 24266,
+      totalPnlAmount: 3466,
+      totalPnlPercent: 16.66,
+      dayChangeAmount: 200,
+      dayChangePercent: 0.8,
+      assetType: "stock",
+      currency: "INR",
+      originalCurrency: "USD",
+      originalAvgPrice: 120,
+      originalInvestedValue: 240,
+      originalCurrentPrice: 140,
+      originalCurrentValue: 280,
+      hasLiveQuote: true,
+    };
+
+    renderInvestmentsPage({
+      portfolioCurrency: "INR",
+      setPortfolioCurrency: setPortfolioCurrencyMock,
+      enrichedHoldings: [mockHoldingWithDiffCurrency],
+      holdings: [mockHoldingWithDiffCurrency],
+    });
+
+    // Check currency filter buttons exist
+    expect(screen.getByText("₹ INR")).toBeInTheDocument();
+    expect(screen.getByText("$ USD")).toBeInTheDocument();
+    expect(screen.getByText("€ EUR")).toBeInTheDocument();
+    expect(screen.getByText("£ GBP")).toBeInTheDocument();
+
+    // Check original currency badge and notes
+    expect(screen.getByText("Traded: USD")).toBeInTheDocument();
+    expect(screen.getByText(/Orig: \$120\.00/i)).toBeInTheDocument();
+
+    // Clicking USD currency filter button triggers setPortfolioCurrency("USD")
+    fireEvent.click(screen.getByText("$ USD"));
+    expect(setPortfolioCurrencyMock).toHaveBeenCalledWith("USD");
   });
 });

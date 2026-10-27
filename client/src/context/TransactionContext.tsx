@@ -117,6 +117,8 @@ interface TransactionContextType {
   enrichedHoldings: EnrichedHolding[];
   portfolioSummary: PortfolioSummary;
   portfolioAllocation: AssetAllocationItem[];
+  portfolioCurrency: string;
+  setPortfolioCurrency: (currency: string) => void;
   isQuotesLoading: boolean;
   saveHolding: (holding: Omit<HoldingItem, "id"> & { id?: string }) => Promise<HoldingItem>;
   deleteHolding: (id: string) => Promise<void>;
@@ -566,11 +568,34 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
     setHoldings((prev) => prev.filter((h) => h.id !== id));
   }, []);
 
+  const [portfolioCurrency, setPortfolioCurrencyState] = useState<string>(() => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        return window.localStorage.getItem("pf_portfolio_currency") || "INR";
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return "INR";
+  });
+
+  const setPortfolioCurrency = useCallback((currency: string) => {
+    const upper = (currency || "INR").toUpperCase();
+    setPortfolioCurrencyState(upper);
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem("pf_portfolio_currency", upper);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
   // 5. Compute portfolio metrics and allocation
   const { enriched: enrichedHoldings, summary: portfolioSummary, allocation: portfolioAllocation } =
     useMemo(() => {
-      return computePortfolio(holdings, quotes);
-    }, [holdings, quotes]);
+      return computePortfolio(holdings, quotes, portfolioCurrency);
+    }, [holdings, quotes, portfolioCurrency]);
 
   return (
     <TransactionContext.Provider
@@ -607,6 +632,8 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
         enrichedHoldings,
         portfolioSummary,
         portfolioAllocation,
+        portfolioCurrency,
+        setPortfolioCurrency,
         isQuotesLoading,
         saveHolding,
         deleteHolding,

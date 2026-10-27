@@ -113,4 +113,112 @@ describe("Holdings Market Data & Portfolio Calculations", () => {
     expect(summary.totalInvested).toBe(500);
     expect(summary.totalPnlAmount).toBe(0);
   });
+
+  it("converts multi-currency holdings into selected portfolio target currency", () => {
+    const holdings: HoldingItem[] = [
+      {
+        id: "hold-aapl",
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        units: 10,
+        avgPrice: 150, // Bought in USD: $150 -> $1,500 invested
+        currency: "USD",
+        assetType: "stock",
+      },
+      {
+        id: "hold-rel",
+        symbol: "RELIANCE.NS",
+        name: "Reliance Industries",
+        units: 10,
+        avgPrice: 2000, // Bought in INR: ₹2,000 -> ₹20,000 invested
+        currency: "INR",
+        assetType: "stock",
+      },
+    ];
+
+    const quotes: Record<string, QuoteData> = {
+      AAPL: {
+        symbol: "AAPL",
+        price: 200, // $200 -> $2,000 current (+33.33%)
+        dayChange: 2,
+        dayChangePercent: 1.0,
+        prevClose: 198,
+        currency: "USD",
+        source: "yahoo",
+        lastUpdated: new Date().toISOString(),
+      },
+      "RELIANCE.NS": {
+        symbol: "RELIANCE.NS",
+        price: 2500, // ₹2500 -> ₹25,000 current (+25%)
+        dayChange: 25,
+        dayChangePercent: 1.0,
+        prevClose: 2475,
+        currency: "INR",
+        source: "yahoo",
+        lastUpdated: new Date().toISOString(),
+      },
+      "USDINR=X": {
+        symbol: "USDINR=X",
+        price: 85, // 1 USD = 85 INR
+        dayChange: 0,
+        dayChangePercent: 0,
+        prevClose: 85,
+        currency: "INR",
+        source: "yahoo",
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+
+    // 1. Compute portfolio in INR (Target = INR)
+    const inrPortfolio = computePortfolio(holdings, quotes, "INR");
+    const aaplInInr = inrPortfolio.enriched.find((h) => h.symbol === "AAPL");
+    const relInInr = inrPortfolio.enriched.find((h) => h.symbol === "RELIANCE.NS");
+
+    expect(aaplInInr).toBeDefined();
+    expect(aaplInInr?.originalCurrency).toBe("USD");
+    expect(aaplInInr?.originalAvgPrice).toBe(150);
+    expect(aaplInInr?.originalInvestedValue).toBe(1500);
+    expect(aaplInInr?.originalCurrentPrice).toBe(200);
+    expect(aaplInInr?.originalCurrentValue).toBe(2000);
+    // Converted to INR at rate 85:
+    // Avg price = 150 * 85 = 12,750
+    // Invested = 1500 * 85 = 127,500
+    // Current price = 200 * 85 = 17,000
+    // Current value = 2000 * 85 = 170,000
+    // P&L amount = 170,000 - 127,500 = 42,500
+    expect(aaplInInr?.avgPrice).toBe(12750);
+    expect(aaplInInr?.investedValue).toBe(127500);
+    expect(aaplInInr?.currentPrice).toBe(17000);
+    expect(aaplInInr?.currentValue).toBe(170000);
+    expect(aaplInInr?.totalPnlAmount).toBe(42500);
+
+    // Reliance remains INR
+    expect(relInInr?.investedValue).toBe(20000);
+    expect(relInInr?.currentValue).toBe(25000);
+
+    // Portfolio summary in INR
+    expect(inrPortfolio.summary.totalInvested).toBe(127500 + 20000);
+    expect(inrPortfolio.summary.totalValue).toBe(170000 + 25000);
+    expect(inrPortfolio.summary.currency).toBe("INR");
+
+    // 2. Compute portfolio in USD (Target = USD)
+    const usdPortfolio = computePortfolio(holdings, quotes, "USD");
+    const aaplInUsd = usdPortfolio.enriched.find((h) => h.symbol === "AAPL");
+    const relInUsd = usdPortfolio.enriched.find((h) => h.symbol === "RELIANCE.NS");
+
+    // AAPL in USD should match original USD values
+    expect(aaplInUsd?.avgPrice).toBe(150);
+    expect(aaplInUsd?.investedValue).toBe(1500);
+    expect(aaplInUsd?.currentPrice).toBe(200);
+    expect(aaplInUsd?.currentValue).toBe(2000);
+
+    // Reliance in USD should convert ₹20,000 / 85 and ₹25,000 / 85
+    expect(relInUsd?.originalCurrency).toBe("INR");
+    expect(relInUsd?.investedValue).toBeCloseTo(20000 / 85, 2);
+    expect(relInUsd?.currentValue).toBeCloseTo(25000 / 85, 2);
+
+    expect(usdPortfolio.summary.totalInvested).toBeCloseTo(1500 + 20000 / 85, 2);
+    expect(usdPortfolio.summary.totalValue).toBeCloseTo(2000 + 25000 / 85, 2);
+    expect(usdPortfolio.summary.currency).toBe("USD");
+  });
 });
