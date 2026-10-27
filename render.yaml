@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: npm install && npm run build -w server
+    buildCommand: npm install && npm run build
     startCommand: npm run start -w server
     healthCheckPath: /api/health
     envVars:

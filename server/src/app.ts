@@ -1,4 +1,7 @@
 import express, { type Application, type Request, type Response } from "express";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
@@ -97,6 +100,33 @@ export function createApp(): Application {
       timestamp: new Date().toISOString(),
       service: "privacy-finance-server",
     });
+  });
+
+  // Client static assets & SPA catch-all routing
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const candidateClientDirs = [
+    path.resolve(process.cwd(), "client/dist"),
+    path.resolve(process.cwd(), "dist"),
+    path.resolve(__dirname, "../../client/dist"),
+    path.resolve(__dirname, "../client/dist"),
+  ];
+
+  const clientDistPath =
+    candidateClientDirs.find((dir) => fs.existsSync(dir)) ||
+    path.resolve(process.cwd(), "client/dist");
+
+  app.use(express.static(clientDistPath));
+
+  app.get("*", (req: Request, res: Response, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    const indexPath = path.join(clientDistPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
   });
 
   return app;

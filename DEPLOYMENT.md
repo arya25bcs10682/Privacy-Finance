@@ -58,12 +58,12 @@ This document provides end-to-end instructions for deploying the **Privacy Finan
 1. In Render Dashboard, click **New > Web Service**.
 2. Connect your Git repository.
 3. Configure service parameters:
-   - **Name**: `privacy-finance-api`
+   - **Name**: `privacy-finance`
    - **Region**: `Oregon (US West)` or nearest to Atlas
    - **Branch**: `main`
    - **Root Directory**: Leave blank (uses repo root)
    - **Runtime**: `Node`
-   - **Build Command**: `npm install && npm run build -w server`
+   - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm run start -w server`
    - **Health Check Path**: `/api/health`
 4. **Add Environment Variables**:
@@ -71,18 +71,18 @@ This document provides end-to-end instructions for deploying the **Privacy Finan
    | :--- | :--- |
    | `NODE_ENV` | `production` |
    | `PORT` | `5000` (Render binds to this automatically) |
-   | `CLIENT_URL` | Your frontend production URL (e.g., `https://your-app.vercel.app`) |
+   | `CLIENT_URL` | Optional if unified same-origin, or your service URL (e.g. `https://privacy-finance.onrender.com`) |
    | `MONGODB_URI` | Your MongoDB Atlas connection URI string |
    | `JWT_ACCESS_SECRET` | 64-char random hex (`node -e "console.log(crypto.randomBytes(32).toString('hex'))"`) |
    | `JWT_REFRESH_SECRET` | 64-char random hex (`node -e "console.log(crypto.randomBytes(32).toString('hex'))"`) |
    | `LLM_PROVIDER` | `gemini` (or `openai-compatible`) |
    | `LLM_API_KEY` | Google AI Studio or OpenAI API key |
    | `LLM_MODEL` | `gemini-1.5-flash` |
-5. Click **Create Web Service**. Your backend will be accessible at `https://privacy-finance-api.onrender.com`.
+5. Click **Create Web Service**. Your complete application (Express API + React client) will be accessible at `https://privacy-finance.onrender.com`.
 
 ---
 
-## 3. Client Deployment: Vercel or Cloudflare Pages
+## 3. Alternative: Separate Client Deployment (Optional)
 
 ### Option A: Vercel
 1. In the Vercel Dashboard, click **Add New > Project**.
