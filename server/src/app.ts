@@ -46,13 +46,13 @@ export function createApp(): Application {
     })
   );
 
-  // CORS configuration with credentials support for httpOnly cookies
+  // CORS configuration supporting cross-domain Authorization header
   app.use(
     cors({
-      origin: process.env.CLIENT_URL || "http://localhost:5173",
+      origin: process.env.CLIENT_URL || true,
       credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Authorization", "Content-Type"],
     })
   );
 

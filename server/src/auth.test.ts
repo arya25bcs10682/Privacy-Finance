@@ -71,12 +71,14 @@ describe("Auth Endpoints", () => {
       expect(res.body.error).toContain("Secret key must never be transmitted");
     });
 
-    it("creates a new user and sets httpOnly cookies", async () => {
+    it("creates a new user, returns JWT token in JSON body, and sets httpOnly cookies", async () => {
       mockedUser.findOne.mockResolvedValue(null);
 
       const res = await request(app).post("/api/auth/signup").send(validSignupData);
 
       expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty("token");
+      expect(typeof res.body.token).toBe("string");
       expect(res.body).toHaveProperty("user");
       expect(res.body.user.email).toBe(validSignupData.email);
       expect(res.body.keySalt).toBe(validSignupData.keySalt);
@@ -104,7 +106,7 @@ describe("Auth Endpoints", () => {
   });
 
   describe("POST /api/auth/login", () => {
-    it("returns user, keySalt, and wrapped keys on valid credentials", async () => {
+    it("returns token in body, user, keySalt, and wrapped keys on valid credentials", async () => {
       const passwordHash = await bcrypt.hash("validpassword123", 10);
       mockedUser.findOne.mockResolvedValue({
         _id: "60d0fe4f5311236168a109ca",
@@ -123,6 +125,8 @@ describe("Auth Endpoints", () => {
       });
 
       expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("token");
+      expect(typeof res.body.token).toBe("string");
       expect(res.body.keySalt).toBe("stored-salt");
       expect(res.body.wrappedDataKey).toBeDefined();
 
@@ -145,6 +149,40 @@ describe("Auth Endpoints", () => {
 
       expect(res.status).toBe(401);
       expect(res.body.error).toBe("Invalid email or password.");
+    });
+  });
+
+  describe("Bearer Token Authentication via requireAuth", () => {
+    it("authenticates GET /api/auth/me using Authorization: Bearer <token>", async () => {
+      const passwordHash = await bcrypt.hash("testpass123", 10);
+      const fakeUser = {
+        _id: "60d0fe4f5311236168a109ca",
+        email: "bearer@example.com",
+        passwordHash,
+        keySalt: "salt123",
+        wrappedDataKey: { ct: "abc" },
+        wrappedDataKeyByRecovery: "def",
+        refreshTokens: [],
+        save: vi.fn().mockResolvedValue(true),
+      };
+      mockedUser.findOne.mockResolvedValue(fakeUser);
+      mockedUser.findById.mockResolvedValue(fakeUser);
+
+      // Login to get token
+      const loginRes = await request(app).post("/api/auth/login").send({
+        email: "bearer@example.com",
+        password: "testpass123",
+      });
+      const token = loginRes.body.token;
+      expect(token).toBeDefined();
+
+      // Access /api/auth/me with Bearer token header and NO cookies
+      const meRes = await request(app)
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(meRes.status).toBe(200);
+      expect(meRes.body.user.email).toBe("bearer@example.com");
     });
   });
 

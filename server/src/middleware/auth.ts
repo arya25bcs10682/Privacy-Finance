@@ -7,11 +7,15 @@ export interface AuthenticatedRequest extends Request {
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   try {
-    let token = req.cookies?.accessToken;
+    let token: string | undefined;
 
-    // Fallback to Bearer token in Authorization header if present
-    if (!token && req.headers.authorization?.startsWith("Bearer ")) {
-      token = req.headers.authorization.split(" ")[1];
+    // Read "Authorization: Bearer <token>" first
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.slice(7).trim();
+    } else if (req.cookies?.accessToken) {
+      // Fallback to cookie
+      token = req.cookies.accessToken;
     }
 
     if (!token) {
