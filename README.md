@@ -1,188 +1,193 @@
-# Privacy-First Personal Finance Monorepo
+# PrivacyFinance (ZK-Vault)
 
-A zero-knowledge, privacy-focused personal finance web application built on the MERN stack with modern TypeScript tooling, Tailwind CSS, shadcn/ui components, and Recharts.
+A privacy-first personal finance app. Upload your bank statement PDF, and PrivacyFinance uses an LLM to turn it into structured transactions, verifies them with balance checks, and shows a dashboard of balances, spending, budgets, bills and investments. Everything is stored encrypted with a key only you know, so the database only ever holds ciphertext.
+
+- **Live app:** [ADD DEPLOYED URL]
+- **Demo video:** [ADD VIDEO URL]
+- **Repository:** https://github.com/arya25bcs10682/privacyFinance
+- **Author:** Arya Kumar
 
 ---
 
-## Workspace Architecture
+## Problem Statement
+
+Most personal finance apps ask you to hand over bank credentials or upload raw statements to a server that can read everything. Bank statements contain highly sensitive information (income, spending habits, account details). Tracking expenses by hand in spreadsheets is the private alternative, but it is slow and error-prone, and every bank formats its statements differently.
+
+## Target Users
+
+Individuals in India (and small groups such as family or friends) who hold accounts with **HDFC, ICICI or SBI**, want a clear picture of their income, spending and investments without manual data entry, and care about who can read their financial data.
+
+## Solution
+
+PrivacyFinance combines **LLM-based statement parsing** with **zero-knowledge storage**:
+
+1. **Sign up with two secrets.** A login password, and a separate *secret key* that never leaves the browser.
+2. **Unlock and extract locally.** The browser unlocks the (optionally password-protected) PDF and extracts the text using pdfjs-dist. Sensitive identifiers such as account numbers are redacted by regex.
+3. **Parse with an LLM.** The redacted page text is sent through the backend to the Google Gemini API, which returns structured transactions (date, narration, debit/credit, amount, balance). No bank-specific parsing scripts are used, so the same pipeline handles different bank layouts.
+4. **Verify.** Every row is validated with a running-balance check (previous balance ± amount = new balance). Rows that fail are flagged for review, where the user can fix or exclude them.
+5. **Deduplicate and encrypt.** Each transaction gets a per-user HMAC fingerprint so re-uploading an overlapping statement skips duplicates. New rows are encrypted in the browser with AES-GCM (256-bit) before being sent to the server.
+6. **Analyse locally.** Categorization, balances, budgets and projections run in the browser on decrypted data held only in memory.
+
+The server and MongoDB store only encrypted payloads, so a database leak does not expose readable transactions.
+
+## Key Features
+
+1. **Secure signup and vault unlock**
+   Email and password login plus a separate secret key. The master data key is derived in the browser (PBKDF2-SHA256, 600,000 rounds), held in memory only, and cleared after 15 minutes of inactivity. A new device needs the same secret key.
+2. **AI-powered statement import with verification**
+   Upload an HDFC, ICICI or SBI statement PDF (password-protected PDFs supported). The LLM extracts the transactions, the app validates each row's running balance, shows a review screen (new, duplicate and needs-review rows with inline fix or exclude), and uploads only new rows, encrypted. The summary table at the end of the statement is excluded from parsing, and opening and closing balances are derived from the transactions themselves.
+3. **Dashboard**
+   Current balance, monthly income and spend, projected month-end cash, a running-balance chart with inflow/outflow colouring, and a spending-by-category breakdown with a month filter.
+4. **Budgets and bills**
+   Monthly spending limits with progress tracking, and a bills and subscriptions overview with reminders based on recurring payments.
+5. **Investment tracking**
+   Add holdings you already own (symbol, units, average buy price, optional purchase date). The app fetches live prices and shows invested amount, current value, and profit/loss per holding and for the whole portfolio, plus an allocation chart.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React, Vite, TypeScript, Tailwind CSS, shadcn/ui, Recharts |
+| Backend | Node.js, Express |
+| Database | MongoDB Atlas with Mongoose |
+| Auth | JWT-based sessions, hashed passwords |
+| Cryptography | Web Crypto API (PBKDF2-SHA256, AES-GCM 256, HMAC-SHA256) |
+| PDF text extraction | pdfjs-dist (in the browser) |
+| Statement parsing | Google Gemini API (called through the backend, with retry and model fallback) |
+| Market data | yahoo-finance2 (via backend proxy) |
+| Hosting | [Vercel / Cloudflare Pages] (frontend), [Render] (backend), MongoDB Atlas |
+
+## Architecture
 
 ```
-end-term-project/
-├── client/                      # Frontend Application (React 19, Vite, TypeScript)
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── auth/            # LoginForm, SignupModal, LockScreen
-│   │   │   └── ui/              # shadcn/ui primitives (Button, Card, etc.)
-│   │   ├── context/
-│   │   │   ├── KeyContext.tsx   # React KeyContext provider (in-memory key storage & 15m idle lock)
-│   │   │   └── KeyContext.test.tsx
-│   │   ├── lib/
-│   │   │   ├── api.ts           # API client with credentials: "include" for httpOnly cookies
-│   │   │   ├── crypto/          # Web Crypto library (AES-GCM, PBKDF2, HKDF, recovery code)
-│   │   │   └── utils.ts         # Tailwind clsx + twMerge utility
-│   │   ├── test/                # Setup & jsdom polyfills
-│   │   ├── App.tsx              # App layout with Router, KeyProvider, and Vault Status
-│   │   ├── index.css            # Base Tailwind layers & design system CSS tokens
-│   │   └── main.tsx             # React DOM root
-│   ├── components.json          # shadcn/ui configuration
-│   ├── eslint.config.js         # ESLint (flat config) + React hooks/refresh plugins
-│   ├── package.json             # React 19, Vite, Tailwind, Recharts, React Router
-│   ├── tailwind.config.ts       # Tailwind config mapped to project theme tokens
-│   └── vite.config.ts           # Vite + Vitest configuration
-│
-├── server/                      # Backend API Server (Node, Express, TypeScript, Mongoose)
-│   ├── src/
-│   │   ├── config/db.ts         # MongoDB connection helper (Mongoose)
-│   │   ├── middleware/auth.ts   # requireAuth middleware strictly extracting userId from JWT
-│   │   ├── models/User.ts       # User model storing email, passwordHash, keySalt, wrapped keys
-│   │   ├── routes/auth.ts       # Signup, login, refresh, logout, me endpoints
-│   │   ├── utils/jwt.ts         # Access & refresh tokens, httpOnly cookie helpers
-│   │   ├── app.ts               # Express factory, Helmet, CORS, rate limiting, cookies
-│   │   ├── auth.test.ts         # Auth endpoints Vitest suite with Supertest
-│   │   └── index.ts             # Server entry loading dotenv & listening on port
-│   ├── package.json             # Express, Mongoose, bcryptjs, jsonwebtoken, helmet, etc.
-│   ├── tsconfig.json            # Strict TypeScript configuration
-│   └── vitest.config.ts         # Vitest node test runner configuration
-│
-├── .gitignore                   # Workspace gitignore
-├── .prettierignore              # Prettier ignore rules
-├── .prettierrc                  # Shared Prettier configuration
-├── package.json                 # Monorepo workspaces definition and unified scripts
-├── rules.md                     # Core project rules & security requirements
-└── README.md                    # Setup and run instructions
+                         BROWSER (trusted zone)
+ ┌──────────────────────────────────────────────────────────────┐
+ │ Secret key ──PBKDF2──► wrapping key ──► master data key      │
+ │                                          (memory only)       │
+ │                                                              │
+ │ Statement PDF ─► unlock + extract text (pdfjs-dist)          │
+ │               ─► redact identifiers ─► drop summary section   │
+ │               ─► split into chunks                           │
+ └───────────────────────────┬──────────────────────────────────┘
+                             │ redacted text chunks
+                             ▼
+                  ┌─────────────────────┐        ┌──────────────┐
+                  │ Express /api/parse  │───────►│  Gemini API  │
+                  │ retry, model        │◄───────│ text → JSON  │
+                  │ fallback, no logging│  rows  └──────────────┘
+                  └──────────┬──────────┘
+                             │ structured rows
+                             ▼
+ ┌──────────────────────────────────────────────────────────────┐
+ │ BROWSER: validate balances ─► review/fix ─► HMAC fingerprint │
+ │          (dedupe) ─► AES-GCM encrypt                         │
+ └───────────────────────────┬──────────────────────────────────┘
+                             │ ciphertext only
+                             ▼
+                  ┌─────────────────────┐        ┌──────────────┐
+                  │ Express API         │───────►│ MongoDB Atlas│
+                  │ auth, per-user      │        │ ciphertext + │
+                  │ scoping             │        │ minimal meta │
+                  └──────────┬──────────┘        └──────────────┘
+                             │ non-sensitive market quotes
+                             ▼
+                       yahoo-finance2
 ```
 
----
+**Main components**
 
-## Zero-Knowledge Architecture & Project Rules
+- `client/`: React single-page app with the crypto module, PDF extraction and redaction, parse orchestration and validation, dashboard, budgets, bills and investments pages.
+- `server/`: Express API handling authentication, encrypted-data storage (every query scoped to the authenticated user), the LLM parsing endpoint, and the market data proxy.
+- **Key design decisions:** a wrapped master data key (the secret key can change without re-encrypting everything), a fresh random IV for every encryption, a per-user HMAC for transaction fingerprints, sequential LLM requests with retry and fallback models, and an append-only insert model that skips duplicates.
 
-1. **Zero-Knowledge Data Flow**:
-   - The user's master Secret Key is **never** sent over the wire, never stored in MongoDB, and never stored in `localStorage` or `sessionStorage`.
-   - The server stores only:
-     - `email`: Normalized user identifier.
-     - `passwordHash`: bcrypt hash for server authentication.
-     - `keySalt`: Random 16-byte salt for client-side PBKDF2 key derivation.
-     - `wrappedDataKey`: AES-GCM master data key wrapped with the secret-derived key (`AES-KW`).
-     - `wrappedDataKeyByRecovery`: Master data key wrapped with the recovery code key.
-2. **Two-Factor Authentication / Key Separation (Rule 3)**:
-   - Login password authenticates with Express.
-   - Secret Key decrypts financial records inside browser memory.
-3. **In-Memory Key Lifecycle & Auto-Lock (Rule 2)**:
-   - All `CryptoKey` instances live exclusively in React memory (`KeyContext`).
-   - After **15 minutes of user inactivity** (no mouse, touch, scroll, or keyboard), keys are wiped from memory and the vault locks.
-   - On explicit logout, cookies are cleared and all keys are wiped.
-4. **Mandatory Recovery Code Flow**:
-   - During registration, a human-readable recovery code (`RC-XXXX-XXXX-...`) is generated from the master data key.
-   - Displayed once with an explicit warning and mandatory acknowledgment checkbox: _"I have saved my Recovery Code. I understand that lost key = lost data."_
-   - Registration payload to server contains **only** salt and wrapped keys.
-5. **Zero-Knowledge LLM Statement Parsing Pipeline**:
-   - **Client**: `pdfjs-dist` decrypts password-protected PDFs locally in browser memory (password never leaves client).
-   - **Local PII Redaction**: Account numbers, customer IDs, PAN cards, names, addresses, emails, and phone numbers are redacted via regexes before transmission.
-   - **Server (`POST /api/parse`)**: Protected by JWT auth and dedicated rate limiting. Calls a pluggable LLM provider (`ILLMProvider`: OpenAI-compatible, Gemini, or Mock).
-   - **Integrity**: System prompt enforces strict RAW JSON output (`[{date, narration, type, amount, balance}]`), preserving every row without summarization or hallucination. Validated via **Zod** with automatic single retry on invalid output.
-   - **Zero-Logging Guarantee**: The server strictly never logs or stores the raw page text or the parsed response.
-   - **Client-Side Bulk Encryption**: Client encrypts the parsed rows with `dataKey` (AES-GCM 256) and computes `hmacTxHash` before bulk-saving to MongoDB.
-6. **CSV / Excel (XLSX) Tabular Import & Encrypted Mappings**:
-   - **Alternative to PDF**: Native in-browser parsing of CSV and Excel (`.xlsx`, `.xls`) statement exports via SheetJS.
-   - **Intelligent Header Detection**: Scans and auto-detects columns for Date, Narration/Description, Debit/Withdrawal, Credit/Deposit, and Running Balance.
-   - **Bank Mapping Confirmation**: Prompts user to verify the detected column mapping once per bank.
-   - **Encrypted Mapping Persistence**: Column mappings are encrypted with the master `dataKey` (AES-GCM 256) and saved in `localStorage` + synced to `/api/auth/mappings`.
-   - **Shared Validation & Deduplication**: Extracted tabular rows pass through the exact same mathematical verification (`prevBalance ± amount = balance`), boundary balance checks, date ordering checks, needs-review preview list with inline editing/exclusion, and HMAC deduplication.
+> Folder names may differ slightly. Adjust this section to match the repository layout.
 
----
+## Privacy and Security Notes
 
-## UI Color Tokens & Theme Configuration
+- **What is zero-knowledge:** storage. The secret key, derived keys and decrypted data live in browser memory only, never in localStorage or on the server. The database holds ciphertext.
+- **What is not:** statement parsing. The redacted text of each statement page is processed by the Google Gemini API. The backend relays it without storing or logging it, but the AI provider does receive that text. Redaction reduces, but cannot guarantee removal of, all identifying details in narrations.
+- PDF passwords are used only in the browser to unlock the file and are never sent anywhere.
+- Every database query is scoped to the authenticated user's id taken from the verified token.
+- Passwords are hashed, secrets live in environment variables, and nothing sensitive is committed.
+- **Losing the secret key means losing access to the encrypted data.** The server cannot recover it.
 
-The client Tailwind theme and CSS variables implement the exact tokens from `rules.md`:
+## Local Setup
 
-| Token                     | Hex Value     | Usage Rule                                     | Tailwind Class                       |
-| :------------------------ | :------------ | :--------------------------------------------- | :----------------------------------- |
-| **Pure Black Background** | `#000000`     | Base viewport canvas background                | `bg-background`                      |
-| **Cards & Sidebar**       | `#0C0E10`     | Elevated surfaces, cards, and sidebar          | `bg-card`, `bg-sidebar`              |
-| **Borders**               | `1px #1F242D` | Structural container borders                   | `border-border`                      |
-| **Grid Lines**            | `#161B22`     | Data grid separators and muted borders         | `border-gridline`                    |
-| **Text**                  | `#E0E3E6`     | Primary foreground text                        | `text-foreground`                    |
-| **Active Nav Pill**       | `#2A2D32`     | Active navigation pill & button accents        | `bg-nav-active`, `bg-secondary`      |
-| **Green**                 | `#22C55E`     | **ONLY** for trend lines, deltas & status dots | `text-trend-green`, `bg-trend-green` |
-| **Red**                   | `#EF4444`     | **ONLY** for trend lines, deltas & status dots | `text-trend-red`, `bg-trend-red`     |
-
----
-
-## Installation & Setup
-
-1. **Install all dependencies across the monorepo**:
-
-   ```bash
-   npm install
-   ```
-
-2. **Verify Environment Configurations**:
-   - Client (`client/.env`):
-     ```env
-     VITE_API_URL=http://localhost:5000/api
-     ```
-   - Server (`server/.env`):
-     ```env
-     PORT=5000
-     MONGODB_URI=mongodb://localhost:27017/privacy_finance
-     NODE_ENV=development
-     CLIENT_URL=http://localhost:5173
-     JWT_ACCESS_SECRET=your-access-secret-at-least-32-chars
-     JWT_REFRESH_SECRET=your-refresh-secret-at-least-32-chars
-     ```
-
----
-
-## Running Applications
-
-### Start Both Apps Concurrently
+**Prerequisites:** Node.js 18+ (LTS), npm, a MongoDB Atlas cluster (free tier works), and a Google AI Studio API key.
 
 ```bash
-npm run dev
+# 1. Clone
+git clone [REPO_URL]
+cd [REPO_FOLDER]
+
+# 2. Install dependencies
+npm install              # or run inside client/ and server/ separately
+
+# 3. Configure environment
+cp server/.env.example server/.env
+cp client/.env.example client/.env
+# then fill in the values (see below)
+
+# 4. Run
+npm run dev              # starts client and server
 ```
 
-- **Client**: `http://localhost:5173`
-- **Server**: `http://localhost:5000` (`http://localhost:5000/api/health`)
+- Client: http://localhost:5173 (Vite default)
+- Server: http://localhost:5000
 
-### Start Individually
+## Environment Variables
 
-- Client: `npm run dev:client`
-- Server: `npm run dev:server`
+**Server (`server/.env`)**
 
----
+| Variable | Description |
+|---|---|
+| `MONGODB_URI` | MongoDB Atlas connection string (URL-encode special characters in the password) |
+| `JWT_SECRET` | Long random string for signing tokens |
+| `CLIENT_URL` | Frontend origin allowed by CORS |
+| `GEMINI_API_KEY` | Google AI Studio API key |
+| `GEMINI_MODEL` | Primary model name |
+| `GEMINI_FALLBACK_MODELS` | Comma-separated fallback models |
+| `PORT` | Server port (default 5000) |
 
-## Testing & Verification
+**Client (`client/.env`)**
 
-### Unit & Integration Tests (Vitest)
+| Variable | Description |
+|---|---|
+| `VITE_API_URL` | Base URL of the backend API |
 
-Run all 133 unit & integration test suites across both `/client` (98 tests) and `/server` (35 tests):
+> Check these names against `.env.example` in the repo and correct any that differ. No real values are committed.
 
-```bash
-npm run test
-```
+## Deployment
 
-### End-to-End Tests (Playwright)
+- **Frontend:** [Vercel / Cloudflare Pages], with `VITE_API_URL` pointing to the backend.
+- **Backend:** Render (free tier). Environment variables are set in the Render dashboard. The free tier sleeps after inactivity, so the first request can take 30-60 seconds.
+- **Database:** MongoDB Atlas, with network access allowing the backend host.
 
-Execute automated browser E2E tests covering User Signup, Second-Device Login, Statement Upload with Deduplication, and Wrong-Key Failure:
+Live app: [ADD URL]
 
-```bash
-npm run test:e2e
-```
+## Testing
 
-### Linting & Production Build
+- Unit tests for the crypto module (round trip, wrong key, tamper detection, IV uniqueness) and the validation logic. Run with `npm test`.
+- Test data in this repository is fabricated. No real bank statements are included.
 
-```bash
-npm run lint
-npm run build
-```
+## Known Limitations
 
----
+- **Privacy trade-off:** because parsing uses a hosted LLM, redacted statement text is sent to the AI provider. Storage is zero-knowledge, parsing is not.
+- **LLM accuracy:** the model can misread or skip rows. The running-balance check and the review screen catch most errors, but users should glance at flagged rows before uploading.
+- **Free-tier limits:** Gemini free-tier quotas are small and the model is sometimes busy. The app retries with backoff and falls back to other models, but large or repeated uploads can hit daily limits.
+- **Statement layouts:** only HDFC, ICICI and SBI statements are targeted. Scanned (image-only) PDFs have no text layer and cannot be parsed.
+- **Reminders** are shown inside the app, not sent as push or email notifications.
+- **Live prices** come from an unofficial Yahoo Finance library and may occasionally be unavailable.
+- **Pdf extraction** this feature use to work but i somehow broke it while reviewing, even llm's are not able to fix it 
 
-## Production Deployment
+## Future Work (something which i actually am working on but i was caught in different things and couldnt finish it)
 
-Comprehensive deployment guidelines, SPA rewrite configurations, security headers, and environment variable references are documented in [DEPLOYMENT.md](file:///c:/Users/aryaa/end%20term%20project/DEPLOYMENT.md):
+- Optional on-device model for fully private parsing (mere gemini pe load kam hojayega and be able to process more parser requests)
+- Push and email reminders for bills 
+- Mutual fund NAV tracking and SIP support (investments tab me ye jayega )
+- Secret key rotation and recovery code flow 
+- Multi-account support (the problem is nothing is getting openly stored on the database(encrypted) or it is not even being stored in the db and if a user wants to use this website on some other device it will fail kyunki even the database doesnt know a damm thing to kaha se fetch karega)
 
-- **Client Deployment**: Vercel (`vercel.json`) or Cloudflare Pages (`client/public/_headers`)
-- **Server Deployment**: Render Web Service (`render.yaml` blueprint)
-- **Database**: MongoDB Atlas M0/Serverless cluster
-- **Environment Variables Reference**: [server/.env.example](file:///c:/Users/aryaa/end%20term%20project/server/.env.example) and [client/.env.example](file:///c:/Users/aryaa/end%20term%20project/client/.env.example)
+## AI Usage
+
+AI tools (Google Antigravity and LLM assistants) were used for planning, code generation, debugging and documentation. The application design, integration, testing and deployment were reviewed and verified by the author. The Gemini API is also used inside the product for statement parsing, with deterministic validation around it.
