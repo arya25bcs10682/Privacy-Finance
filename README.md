@@ -2,11 +2,6 @@
 
 A privacy-first personal finance app. Upload your bank statement PDF, and PrivacyFinance uses an LLM to turn it into structured transactions, verifies them with balance checks, and shows a dashboard of balances, spending, budgets, bills and investments. Everything is stored encrypted with a key only you know, so the database only ever holds ciphertext.
 
-- **Live app:** [ADD DEPLOYED URL]
-- **Demo video:** [ADD VIDEO URL]
-- **Repository:** https://github.com/arya25bcs10682/privacyFinance
-- **Author:** Arya Kumar
-
 ---
 
 ## Problem Statement
@@ -156,12 +151,6 @@ npm run dev              # starts client and server
 | `VITE_API_URL` | Base URL of the backend API |
 
 > Check these names against `.env.example` in the repo and correct any that differ. No real values are committed.
-
-## Deployment
-
-- **Frontend:** [Vercel / Cloudflare Pages], with `VITE_API_URL` pointing to the backend.
-- **Backend:** Render (free tier). Environment variables are set in the Render dashboard. The free tier sleeps after inactivity, so the first request can take 30-60 seconds.
-- **Database:** MongoDB Atlas, with network access allowing the backend host.
 
 Live app: [ADD URL]
 
